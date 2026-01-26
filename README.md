@@ -10,3 +10,11 @@ west update
 ```
 west build --pristine -b arduino_nano_33_iot app
 ```
+
+``
+# create workspace outside repo
+mkdir -p ~/zephyr-workspace && cd ~/zephyr-workspace
+west init -m /home/doug/git/iot-foundry-zephyr-endpoint
+west update
+west build -b arduino_nano_33_iot /home/doug/git/iot-foundry-zephyr-endpoint
+```

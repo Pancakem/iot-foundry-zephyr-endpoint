@@ -11,4 +11,3 @@ manifest:
         name-allowlist:
           - libmctp
           - hal_atmel
-          - hal_nordic
