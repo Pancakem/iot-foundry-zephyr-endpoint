@@ -51,4 +51,7 @@ int send_control_message(struct mctp *mctp, uint8_t eid, bool tag_owner, uint8_t
 // add a supported version for a message type
 int mctp_versions_map_add(uint8_t msg_type, const struct mctp_version_entry *ver);
 
+// get the current endpoint ID from the MCTP instance.
+uint8_t get_current_endpoint_id(struct mctp *mctp);
+
 #endif /* MCTP_CONTROL_H */

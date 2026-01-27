@@ -206,9 +206,9 @@ def pretty_print_response(resp: bytes):
 
 def run(device='/dev/ttyACM0', baud=9600):
     tests = [
-        ('SET_ENDPOINT_ID', build_mctp_control_request(0x01, payload=bytes([0x00, 0x08]))),
+        ('SET_ENDPOINT_ID', build_mctp_control_request(0x01, dest = 0xff,payload=bytes([0x00, 0x08]))),
         ('GET_ENDPOINT_ID', build_mctp_control_request(0x02, dest=8)),
-        ('GET_MCTP_VERSION_SUPPORT', build_mctp_control_request(0x04, dest=8)),
+        ('GET_MCTP_VERSION_SUPPORT', build_mctp_control_request(0x04, dest=8,payload=bytes([0x00]))),
         ('GET_MESSAGE_TYPE_SUPPORT', build_mctp_control_request(0x05, dest=8)),
     ]
 
@@ -219,7 +219,6 @@ def run(device='/dev/ttyACM0', baud=9600):
             pretty_print_response(resp)
         else:
             print('  No response')
-
 
 if __name__ == '__main__':
     dev = '/dev/ttyACM0'

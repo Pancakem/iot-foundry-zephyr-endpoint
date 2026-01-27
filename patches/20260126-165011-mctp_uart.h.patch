@@ -1,0 +1,15 @@
+--- /home/doug/zephyrproject/zephyr/include/zephyr/pmci/mctp/mctp_uart.h	2026-01-26 16:07:34.460601643 -0700
++++ /home/doug/git/iot-foundry-zephyr-endpoint/mctp/mctp_uart.h	2026-01-24 17:04:48.681580989 -0700
+@@ -22,7 +22,12 @@
+ 	const struct device *dev;
+ 
+ 	/* receive buffers and state */
++#if defined(CONFIG_SOC_FAMILY_ATMEL_SAM0)
++	// making the buffer size 1 for SAM0 prevents blocking issues with DMA
++	uint8_t rx_buf[2][1];
++#else
+ 	uint8_t rx_buf[2][256];
++#endif
+ 	bool rx_buf_used[2];
+ 	struct mctp_pktbuf *rx_pkt;
+ 	uint8_t rx_exp_len;

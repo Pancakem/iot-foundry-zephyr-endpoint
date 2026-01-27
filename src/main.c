@@ -1,4 +1,11 @@
-/*
+/**
+ * @file main.c
+ * @brief Zephyr Endpoint for IoT-Foundry project
+ * This is a simple MCTP endpoint implementation using Zephyr RTOS.
+ * It uses MCTP over UART for communication and handles basic
+ * MCTP control messages such as Get Endpoint ID.
+ * @author Doug Sandy
+ * @date January 2026
  */
 
 #include <stdlib.h>
@@ -16,7 +23,7 @@
 
 LOG_MODULE_REGISTER(mctp_endpoint, LOG_LEVEL_DBG);
 
-/* Test-only duplicate of libmctp control header structures/macros.
+/* Duplicate of libmctp control header structures/macros.
  * These are intentionally local copies for development/testing when
  * the upstream libmctp headers are not available on the include path.
  */
@@ -36,19 +43,30 @@ struct mctp_ctrl_msg_hdr {
 
 struct echo_msg {
 	uint8_t remote_eid;
+	uint8_t destination_eid;
 	bool tag_owner;
 	uint8_t msg_tag;
 	size_t len;
 	uint8_t data[RX_BUF_SZ];
 };
 
+// message queue for received echo messages
 K_MSGQ_DEFINE(echo_q, sizeof(struct echo_msg), ECHO_Q_DEPTH, 4);
 
-/* Local/remote EIDs for the example (complementary with the host sample) */
-#define LOCAL_HELLO_EID 10
+// define the MCTP UART binding
+MCTP_UART_DT_DEFINE(mctp_endpoint, DEVICE_DT_GET(DT_NODELABEL(arduino_serial)));
 
-static void rx_message(uint8_t remote_eid, bool tag_owner, uint8_t msg_tag, void *data, void *msg,
-					   size_t len)
+/**
+ * @brief MCTP receive message handler
+ * Handles incoming MCTP messages by enqueueing them for processing.
+ * @param remote_eid The source endpoint ID of the message sender.
+ * @param tag_owner The tag owner bit of the message.
+ * @param msg_tag The message tag of the message.
+ * @param data Pointer to user data (not used).
+ * @param msg Pointer to the full message including header.
+ * @param len Length of the message in bytes.
+ */
+static void rx_message(uint8_t remote_eid, bool tag_owner, uint8_t msg_tag, void *data, void *msg, size_t len)
 {
 	struct echo_msg emsg;
 
@@ -63,19 +81,21 @@ static void rx_message(uint8_t remote_eid, bool tag_owner, uint8_t msg_tag, void
 	k_msgq_put(&echo_q, &emsg, K_NO_WAIT); 
 }
 
-MCTP_UART_DT_DEFINE(mctp_endpoint, DEVICE_DT_GET(DT_NODELABEL(arduino_serial)));
-
+/**
+ * @brief Main function
+ * Initializes MCTP over UART and enters the main processing loop.
+ */
 int main(void)
 {
-	LOG_INF("mctp_endpoint: main() start"); k_msleep(100);
+	LOG_INF("mctp_endpoint: main() start");
 
 	mctp_set_alloc_ops(malloc, free, realloc);
 	
 	struct mctp *mctp_ctx = mctp_init(); 
 	__ASSERT_NO_MSG(mctp_ctx != NULL);
 
-	// set the mctp bus binding for our uart
-	mctp_register_bus(mctp_ctx, &mctp_endpoint.binding, LOCAL_HELLO_EID);
+	// set the mctp bus binding for our uart - initial EID 0x00 (unconfigured)
+	mctp_register_bus(mctp_ctx, &mctp_endpoint.binding, 0x00);
 	
 	// set the default rx message handler
 	mctp_set_rx_all(mctp_ctx, rx_message, NULL);
@@ -87,11 +107,15 @@ int main(void)
 	while (true) {
 		if (k_msgq_get(&echo_q, &em, K_FOREVER) == 0) {
 			LOG_DBG("dequeued echo for eid %d len %zu tag %u", em.remote_eid, em.len, em.msg_tag);
-			// todo: ignore non requests
-			// todo: ignore messages that are too short
-			// todo: ignore messages that are not for us			
+		
+			// ignore non requests
+			if (!em.tag_owner) {
+				LOG_WRN("message not a request, dropping");
+				continue;
+			}
 			const struct mctp_ctrl_msg_hdr *hdr = (const struct mctp_ctrl_msg_hdr *)em.data;
-			if ((em.len >= sizeof(struct mctp_ctrl_msg_hdr))&&(hdr->ic_msg_type == MCTP_CTRL_HDR_MSG_TYPE)) {
+			if ((em.len >= sizeof(struct mctp_ctrl_msg_hdr)) && 
+				(hdr->ic_msg_type == MCTP_CTRL_HDR_MSG_TYPE)) {
 				// this is a control message - process it
 				LOG_DBG("Control message: type %u", hdr->command_code); k_msleep(1000);
 				int ret = send_control_message(mctp_ctx, em.remote_eid, em.tag_owner, em.msg_tag, em.data, em.len);

@@ -1,0 +1,26 @@
+--- /home/doug/zephyrproject/zephyr/subsys/pmci/mctp/mctp_uart.c	2026-01-26 16:07:35.005336823 -0700
++++ /home/doug/git/iot-foundry-zephyr-endpoint/mctp/mctp_uart.c	2026-01-24 17:04:16.934373431 -0700
+@@ -14,6 +14,10 @@
+ #include <zephyr/logging/log.h>
+ LOG_MODULE_REGISTER(mctp_uart, CONFIG_MCTP_LOG_LEVEL);
+ 
++#if defined(CONFIG_SOC_FAMILY_ATMEL_SAM0)
++#include <soc.h>
++#endif
++
+ #define MCTP_UART_REVISION     0x01
+ #define MCTP_UART_FRAMING_FLAG 0x7e
+ #define MCTP_UART_ESCAPE       0x7d
+@@ -260,7 +264,12 @@
+ 
+ 	__ASSERT_NO_MSG(res == 0);
+ 	uart->rx_buf_used[0] = true;
++#if defined(CONFIG_SOC_FAMILY_ATMEL_SAM0)
++	// On SAM0, using SYS_FOREVER_US to ensure dma is started correctly
++	res = uart_rx_enable(uart->dev, uart->rx_buf[0], sizeof(uart->rx_buf[0]), SYS_FOREVER_US);
++#else
+ 	res = uart_rx_enable(uart->dev, uart->rx_buf[0], sizeof(uart->rx_buf[0]), 1000);
++#endif
+ 	__ASSERT_NO_MSG(res == 0);
+ }
+ 

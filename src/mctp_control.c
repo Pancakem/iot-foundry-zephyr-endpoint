@@ -191,6 +191,8 @@ static void initialize_versions_map(void)
         mctp_versions_map[i].used = 0;
         mctp_versions_map[i].count = 0;
     }
+    mctp_versions_initialized = true;
+
     mctp_versions_map_add(0x00, &(struct mctp_version_entry){ .major_version = 0xf1, .minor_version = 0xf0, .update_version = 0xff, .alpha_version = 0 });
     mctp_versions_map_add(0x00, &(struct mctp_version_entry){ .major_version = 0xf1, .minor_version = 0xf1, .update_version = 0xff, .alpha_version = 0 });
     mctp_versions_map_add(0x00, &(struct mctp_version_entry){ .major_version = 0xf1, .minor_version = 0xf2, .update_version = 0xff, .alpha_version = 0 });
@@ -386,7 +388,14 @@ static int process_get_mctp_version_support_control_message(struct mctp *mctp, u
     }
     const struct get_mctp_version_support_request *req = (const struct get_mctp_version_support_request *)msg;
 
-    struct mctp_versions_entry *versions = mctp_versions_map_get(req->msg_type);
+    struct mctp_versions_entry *versions;
+    if (req->msg_type==0xff) {
+        // version entries for base mctp spec (for us it is the same as control)
+        versions = mctp_versions_map_get(0x00);
+    } else {
+        versions = mctp_versions_map_get(req->msg_type);
+    }
+    
     if (!versions) {
         // no versions found for requested message type
         return CONTROL_COMPLETE_INVALID_DATA;
@@ -426,7 +435,6 @@ static int process_get_mctp_version_support_control_message(struct mctp *mctp, u
  * @return int CONTROL_COMPLETE_SUCCESS on success, error code otherwise.
  */
 int process_get_message_type_support_control_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, uint8_t msg_tag, const void *msg, uint16_t len) {
-    // todo: check validity;
     if (len < sizeof(struct get_message_type_support_request)) {
         return CONTROL_COMPLETE_INVALID_LENGTH;
     }
@@ -499,7 +507,7 @@ int send_control_message(struct mctp *mctp, uint8_t eid, bool tag_owner, uint8_t
     }
     if (completion_code != CONTROL_COMPLETE_SUCCESS) {
         LOG_DBG("Sending Error Response: %u", completion_code);
-        //send_control_completion_response(mctp, eid, tag_owner, msg_tag, msg, msg_len, completion_code);
+        send_control_completion_response(mctp, eid, tag_owner, msg_tag, msg, msg_len, completion_code);
     }
     return completion_code;
 }
