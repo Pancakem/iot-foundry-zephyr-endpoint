@@ -1,0 +1,57 @@
+name: Zephyr CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git cmake ninja-build gperf ccache dfu-util device-tree-compiler \
+            python3-pip python3-setuptools python3-venv build-essential \
+            gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - name: Install west and update PATH
+        run: |
+          python3 -m pip install --user west
+          echo "::add-path::$HOME/.local/bin"
+          export PATH="$HOME/.local/bin:$PATH"
+
+      - name: Initialize west workspace with Zephyr
+        run: |
+          mkdir -p $HOME/zephyrproject
+          cd $HOME/zephyrproject
+          west init -m https://github.com/zephyrproject-rtos/zephyr
+          west update
+
+      - name: Install Python requirements for Zephyr
+        run: |
+          export ZEPHYR_BASE=$HOME/zephyrproject/zephyr
+          python3 -m pip install --user -r $ZEPHYR_BASE/scripts/requirements.txt
+          export PATH="$HOME/.local/bin:$PATH"
+
+      - name: Build for Arduino Nano 33 IoT (board: arduino_nano_33_iot)
+        env:
+          ZEPHYR_BASE: ${{ runner.home }}/zephyrproject/zephyr
+          PATH: ${{ env.PATH }}:${{ runner.home }}/.local/bin
+        run: |
+          west build -b arduino_nano_33_iot $GITHUB_WORKSPACE -p auto
+
+      - name: Build and run native_sim unit test
+        env:
+          ZEPHYR_BASE: ${{ runner.home }}/zephyrproject/zephyr
+          PATH: ${{ env.PATH }}:${{ runner.home }}/.local/bin
+        run: |
+          west build -b native_sim tests/mctp_posix_uart_stub -p auto
+          west build -t run
