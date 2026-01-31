@@ -20,6 +20,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include "mctp_control.h"
+#include "process_pldm.h"
 
 LOG_MODULE_REGISTER(mctp_endpoint, LOG_LEVEL_DBG);
 
@@ -108,6 +109,10 @@ int main(void)
 	/* MCTP poll loop: dequeue echo messages and send replies from thread context */
 	mctp_uart_start_rx(&mctp_endpoint);
 
+#ifdef INCLUDE_PLDM
+	init_pldm();
+#endif
+
 	struct echo_msg em;
 	while (true) {
 		if (k_msgq_get(&echo_q, &em, K_FOREVER) == 0) {
@@ -117,13 +122,25 @@ int main(void)
 			if ((em.len >= sizeof(struct mctp_ctrl_msg_hdr)) && 
 				(hdr->ic_msg_type == MCTP_CTRL_HDR_MSG_TYPE)) {
 				// this is a control message - process it
-				LOG_DBG("Control message: type %u", hdr->command_code); k_msleep(1000);
+				LOG_DBG("Control message: type %u", hdr->command_code);
 				int ret = send_control_message(mctp_ctx, em.remote_eid, em.tag_owner, em.msg_tag, em.data, em.len);
 				if (ret) {
 					LOG_DBG("send_control_message failed: %d", ret);
 				}
-			} else {
-				LOG_WRN("message not a control message, dropping");
+			} 
+			// process pldm messages if libpldm is included
+#ifndef INCLUDE_PLDM
+			else if ((em.len >= sizeof(struct mctp_ctrl_msg_hdr)) && 
+				(hdr->ic_msg_type == MCTP_PLDM_HDR_MSG_TYPE)) {
+				// this is a PLDM message - process it
+				int ret = handle_pldm_message(mctp_ctx, em.remote_eid, em.tag_owner, em.msg_tag, em.data, em.len);
+				if (ret) {
+					LOG_DBG("send_control_message failed: %d", ret);
+				}
+			}
+#endif
+			else {
+				LOG_WRN("unknown message type, dropping");
 				continue;
 			}			
 		}

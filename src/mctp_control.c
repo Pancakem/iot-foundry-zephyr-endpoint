@@ -151,9 +151,9 @@ struct mctp {
 #endif /* MCTP_POSIX_UNIT_TEST */
 
 /**
- * @brief Send a control completion response message.
+ * @brief Send a completion response message.
  * 
- * Constructs and sends a control completion response message
+ * Constructs and sends a completion response message
  * with the specified parameters.
  * 
  * @param mctp Pointer to the MCTP instance.
@@ -163,7 +163,7 @@ struct mctp {
  * @param command_code The command code of the original request.
  * @param completion_code The completion code to include in the response.
  */
-static void send_control_completion_response(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, uint8_t msg_tag, const void *msg, size_t len, uint8_t completion_code) {
+void send_completion_response(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, uint8_t msg_tag, const void *msg, size_t len, uint8_t completion_code) {
     if (len<sizeof(struct control_msg_request)) {
         // silently drop packet
         return;
@@ -487,7 +487,7 @@ int send_control_message(struct mctp *mctp, uint8_t eid, bool tag_owner, uint8_t
     const struct control_msg_request *hdr = (const struct control_msg_request *)msg;
     if (msg_len < sizeof(struct control_msg_request)) {
         LOG_ERR("Control message too short: %zu", msg_len);
-        send_control_completion_response(mctp, eid, tag_owner, msg_tag, msg, msg_len, CONTROL_COMPLETE_INVALID_LENGTH);
+        send_completion_response(mctp, eid, tag_owner, msg_tag, msg, msg_len, CONTROL_COMPLETE_INVALID_LENGTH);
         return CONTROL_COMPLETE_INVALID_LENGTH;
     }
 
@@ -511,7 +511,7 @@ int send_control_message(struct mctp *mctp, uint8_t eid, bool tag_owner, uint8_t
     }
     if (completion_code != CONTROL_COMPLETE_SUCCESS) {
         LOG_DBG("Sending Error Response: %u", completion_code);
-        send_control_completion_response(mctp, eid, tag_owner, msg_tag, msg, msg_len, completion_code);
+        send_completion_response(mctp, eid, tag_owner, msg_tag, msg, msg_len, completion_code);
     }
     return completion_code;
 }

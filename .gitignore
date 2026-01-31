@@ -5,11 +5,14 @@
 
 # python
 .venv
+__pycache__/
 
 # build
 /build*
 
-__pycache__/
+# platform-specific pdr files
+/src/pdrs/*
+!/src/pdrs/platform_defs.h
 
 # docs
 /doc/_build*

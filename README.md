@@ -37,7 +37,19 @@ The following are system requirements for buidling/testing teh code in this libr
 ## Environment Installation
 These instructions show how to install the application build environment on an Ubuntu Linux system.  Some changes may be required for other linux environments. Throughout these instructions <application_path> is the full path to where the application (this repository) has been stored.  <workspace_path> is the full path to where the zephyrproject workspace will be downloaded.
 
-The project uses the `west` build system to manage the application build.  The first step is to create a python virtual environment and install the `west` toolchain.
+This project uses submodules to support some of the library functions.  Once you clone the project.  Update the submodules with the following command:
+```bash
+cd <application_path> 
+git submodule update --init --recursive
+```
+Next, the platform data record (PDR) builder needs to be built if the project will implment PLDM.  Do this with the following comman ds:
+```bash
+cd <application_path> 
+mkdir -p build-host/iot_builder
+cmake -S tools/iot_builder -B build-host/iot_builder
+cmake --build build-host/iot_builder -- -j$(nproc)
+```
+The project uses the `west` build system to manage the application build.  The next step is to create a python virtual environment and install the `west` toolchain.
 ```bash
 cd <application_path> 
 python3 -m venv ./.venv
@@ -67,12 +79,21 @@ chmod +x <application_path>/patches/apply_patches.sh
 ```
 The environment is now installed and ready to use.  Note that sourcing the virtual environment will be required with each new terminal session.
 
+Lastly, if building with PLDM support enabled, you may use the iot-builder to create build switches and PDR data for your project.
+```bash
+cd <application_path>
+./build-host/iot_builder/iot_builder ./tools/iot_builder/src/builder/sample_config.json ./src/pdrs
+
+```
+
 ## Build Flow
 
 To build the project, use the following commands:
 ```bash
 cd <workspace_path>
 west build -p auto -b arduino_nano_33_iot <application_path>
+# our use this to enable pldm:
+west build -b arduino_nano_33_iot -d /home/doug/zephyrproject/build /home/doug/git/iot-foundry-zephyr-endpoint -- -DINCLUDE_PLDM=1
 ```
 The device can be programmed using:
 ```bash
