@@ -33,6 +33,7 @@ The following are system requirements for buidling/testing teh code in this libr
 - `patches/` — Patches to the Zephyr project files for project-based changes that have either not yet been upstreamed or are not appropriate for upstreaming.
 - `src/` — application C source (and header) files.
 - `tests/` — test scripts and code for validating the project.
+- `tools/` — tools used by this project
 
 ## Environment Installation
 These instructions show how to install the application build environment on an Ubuntu Linux system.  Some changes may be required for other linux environments. Throughout these instructions <application_path> is the full path to where the application (this repository) has been stored.  <workspace_path> is the full path to where the zephyrproject workspace will be downloaded.
@@ -79,21 +80,22 @@ chmod +x <application_path>/patches/apply_patches.sh
 ```
 The environment is now installed and ready to use.  Note that sourcing the virtual environment will be required with each new terminal session.
 
-Lastly, if building with PLDM support enabled, you may use the iot-builder to create build switches and PDR data for your project.
+Lastly, if building with PLDM support enabled, you may use the iot-builder to create build switches and PDR data for your project.  This code will place the required config.c and config.h files in the src/pdrs/ folder.  You may change the path to the input.json file as you see fit. 
 ```bash
 cd <application_path>
 ./build-host/iot_builder/iot_builder ./tools/iot_builder/src/builder/sample_config.json ./src/pdrs/
 
 ```
+More information about the iot builder can be found on github at: https://github.com/PICMG/iot_builder
 
 ## Build Flow
 
 To build the project, use the following commands:
 ```bash
 cd <workspace_path>
-west build -p auto -b arduino_nano_33_iot <application_path>
+west build -p always -b arduino_nano_33_iot <application_path>
 # our use this to enable pldm:
-west build -b arduino_nano_33_iot -d /home/doug/zephyrproject/build /home/doug/git/iot-foundry-zephyr-endpoint -- -DINCLUDE_PLDM=ON
+west build -p always -b arduino_nano_33_iot -d /home/doug/zephyrproject/build /home/doug/git/iot-foundry-zephyr-endpoint -- -DINCLUDE_PLDM=ON
 ```
 The device can be programmed using:
 ```bash
@@ -108,6 +110,14 @@ The tests folder contains test scripts for testing the programmed IoT-Foundry en
 
     ```bash
     python3 ./tests/run_mctp_tests.py <device> <baud>
+    # <device> is the linux path to the device to test (e.g. /dev/ttyUSB0)
+    # <baud> is the baud rate for the device.  The default is 115200
+    ```
+
+- **run_pldm_tests.py** a python script that runs several different pldm base requests to the endpoint and shows response information. Run the command using the following syntax:
+
+    ```bash
+    python3 ./tests/run_pldm_tests.py <device> <baud>
     # <device> is the linux path to the device to test (e.g. /dev/ttyUSB0)
     # <baud> is the baud rate for the device.  The default is 115200
     ```

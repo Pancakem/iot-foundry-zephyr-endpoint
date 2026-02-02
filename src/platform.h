@@ -1,7 +1,11 @@
-/* platform.h - declarations for platform and FRU handlers
- *
- * This header exposes the PLDM platform handler entry points implemented
- * across the `src/platform_*.c` files and the FRU helpers in `src/fru.c`.
+/**
+ * @file platform.h
+ * @brief Platform PLDM command handler prototypes for IoT-Foundry firmware
+ * This header declares the prototypes for the PLDM Platform command handlers
+ * implemented in the IoT-Foundry Zephyr-based MCTP endpoint firmware.
+ * @author Doug Sandy
+ * @date February 2026
+ * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
@@ -12,7 +16,7 @@
 extern "C" {
 #endif
 
-/* Platform handler prototypes (implemented in src/platform_*.c) */
+/* platform event handlers - implemented in src/platform_terminus_uid.c */
 int handle_platform_get_terminus_uid(struct pldm_header_info *hdr,
                                      const void *req_msg, size_t req_len,
                                      void *resp, size_t *resp_len);
@@ -41,6 +45,7 @@ int handle_platform_event_message_buffer_size(struct pldm_header_info *hdr,
                                               const void *req_msg, size_t req_len,
                                               void *resp, size_t *resp_len);
 
+/* platform numeric sensor handlers - implemented in src/platform_numsense.c */
 int handle_platform_set_numeric_sensor_enable(struct pldm_header_info *hdr,
                                               const void *req_msg, size_t req_len,
                                               void *resp, size_t *resp_len);
@@ -73,6 +78,7 @@ int handle_platform_init_numeric_sensor(struct pldm_header_info *hdr,
                                         const void *req_msg, size_t req_len,
                                         void *resp, size_t *resp_len);
 
+/* platform state sensor handlers - implemented in src/platform_statesense.c */
 int handle_platform_set_state_sensor_enables(struct pldm_header_info *hdr,
                                              const void *req_msg, size_t req_len,
                                              void *resp, size_t *resp_len);
@@ -85,6 +91,7 @@ int handle_platform_init_state_sensor(struct pldm_header_info *hdr,
                                       const void *req_msg, size_t req_len,
                                       void *resp, size_t *resp_len);
 
+/* platform effecter handlers - implemented in src/platform_effecter.c */
 int handle_platform_set_numeric_effecter_enable(struct pldm_header_info *hdr,
                                                const void *req_msg, size_t req_len,
                                                void *resp, size_t *resp_len);
@@ -109,6 +116,7 @@ int handle_platform_get_state_effecter_states(struct pldm_header_info *hdr,
                                               const void *req_msg, size_t req_len,
                                               void *resp, size_t *resp_len);
 
+/* platform log handlers - implemented in src/platform_log.c */
 int handle_platform_get_pldm_event_log_info(struct pldm_header_info *hdr,
                                            const void *req_msg, size_t req_len,
                                            void *resp, size_t *resp_len);
@@ -145,6 +153,7 @@ int handle_platform_find_pldm_event_log_entry(struct pldm_header_info *hdr,
                                               const void *req_msg, size_t req_len,
                                               void *resp, size_t *resp_len);
 
+/* pdr handlers - implemented in src/platform_pdr.c */
 int handle_platform_get_pdr_repository_info(struct pldm_header_info *hdr,
                                            const void *req_msg, size_t req_len,
                                            void *resp, size_t *resp_len);

@@ -7,6 +7,8 @@
  * build-time definitions to suit the target environment.
  * @author Doug Sandy
  * @date January 2026
+ * 
+ * SPDX-License-Identifier: Apache-2.0 
  */
 #pragma once
 #include <stdint.h>
