@@ -14,7 +14,7 @@ option(INCLUDE_PLDM "Enable building and linking libpldm" OFF)
 
 message(STATUS "INCLUDE_PLDM=${INCLUDE_PLDM}")
 
-target_sources(app PRIVATE src/main.c src/mctp_control.c src/process_pldm.c)
+target_sources(app PRIVATE src/main.c src/mctp_control.c)
 
 # Option to build host-only tools (like iot_builder). Disabled by default.
 option(BUILD_HOST_TOOLS "Build host-only tools (not for cross/Zephyr builds)" OFF)
@@ -35,6 +35,18 @@ if(INCLUDE_PLDM)
     target_link_libraries(app PRIVATE libpldm)
   elseif(TARGET pldm)
     target_link_libraries(app PRIVATE pldm)
+  endif()
+
+  # Add platform handler sources and FRU implementation into the Zephyr app
+  # when PLDM support is enabled. Use CONFIGURE_DEPENDS so CMake re-globs
+  # when files are added/removed during development.
+  file(GLOB PLATFORM_SRCS CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/process_pldm.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/platform_*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/fru.c
+  )
+  if(PLATFORM_SRCS)
+    target_sources(app PRIVATE ${PLATFORM_SRCS})
   endif()
 endif()
 
