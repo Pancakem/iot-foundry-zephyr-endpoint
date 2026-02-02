@@ -121,3 +121,16 @@ The tests folder contains test scripts for testing the programmed IoT-Foundry en
     # <device> is the linux path to the device to test (e.g. /dev/ttyUSB0)
     # <baud> is the baud rate for the device.  The default is 115200
     ```
+
+- **pldm_tb** The repository includes a native, JSON-driven PLDM test runner under `tests/pldm_tb`. This builds a small host binary (`pldm_tb`) and runs the vector file `tests/pldm_tb/tests.json`.
+
+Build and run locally:
+
+    ```bash
+    mkdir -p tests/pldm_tb/build_native
+    cd tests/pldm_tb/build_native
+    cmake ..
+    cmake --build . -j
+    ./pldm_tb ../tests.json -v
+    ```
+To add/modify tests in tests.json, use a text editor to update the message sent, response code, or expected response.

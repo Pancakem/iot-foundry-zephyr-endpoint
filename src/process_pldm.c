@@ -422,6 +422,8 @@ int handle_pldm_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, u
         case PLDM_BASE:
             LOG_DBG("PLDM message: type BASE");
             rc = pldm_control_handle_msg(&pldm_control_ctx, (const void *)pldm_msg, pldm_msg_len, pldm_tx_buf+1, &resp_len);
+			// fix issue with wrong type byte
+			pldm_tx_buf[2] = hdr.pldm_type;   // copy the type from the request
 			if (rc >= 0) {
 				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
             	return rc;
@@ -429,7 +431,9 @@ int handle_pldm_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, u
 			break;
         case PLDM_FRU:
             LOG_DBG("PLDM message: type FRU");
-            rc = handle_fru_msg((const void *)pldm_msg, pldm_msg_len, pldm_tx_buf, &resp_len);
+            rc = handle_fru_msg((const void *)pldm_msg, pldm_msg_len, pldm_tx_buf+1, &resp_len);
+			// fix issue with wrong type byte
+			pldm_tx_buf[2] = hdr.pldm_type;   // copy the type from the request
 			if (rc >= 0) {
 				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
             	return rc;
@@ -437,7 +441,9 @@ int handle_pldm_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, u
 			break;
         case PLDM_PLATFORM:
             LOG_DBG("PLDM message: type PLATFORM");
-            rc = handle_platform_msg((const void *)pldm_msg, pldm_msg_len, pldm_tx_buf, &resp_len);
+            rc = handle_platform_msg((const void *)pldm_msg, pldm_msg_len, pldm_tx_buf+1, &resp_len);
+			// fix issue with wrong type byte
+			pldm_tx_buf[2] = hdr.pldm_type;   // copy the type from the request
 			if (rc >= 0) {
 				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
             	return rc;

@@ -23,3 +23,9 @@ __pycache__/
 
 
 
+
+# test build artifacts
+tests/pldm_tb/build_native/
+
+
+
