@@ -41,7 +41,7 @@ jobs:
           python3 -m pip install --user -r $ZEPHYR_BASE/scripts/requirements.txt
           export PATH="$HOME/.local/bin:$PATH"
 
-      - name: Build for Arduino Nano 33 IoT (board: arduino_nano_33_iot)
+      - name: "Build for Arduino Nano 33 IoT (board: arduino_nano_33_iot)"
         env:
           ZEPHYR_BASE: ${{ runner.home }}/zephyrproject/zephyr
           PATH: ${{ env.PATH }}:${{ runner.home }}/.local/bin
