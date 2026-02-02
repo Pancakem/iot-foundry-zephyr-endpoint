@@ -77,29 +77,40 @@ def parse_frame(data: bytes):
         end = data.rindex(FRAME_CHAR)
     except ValueError:
         return None
+    # skip past the start from character
     payload = data[start + 1:end]
+    
+    # unescape the payload
     payload = unescape_body(payload)
+    
+    # make sure the payload is long enough for header
     if len(payload) < 6:
         return None
-    protocol = payload[0]
-    byte_count = payload[1]
-    header_version = payload[2]
-    dest = payload[3]
-    src = payload[4]
-    flags = payload[5]
-    msg_type = payload[6]
-    instance = payload[7]
+    
+    protocol = payload[0]         # serial protocol version
+    byte_count = payload[1]       # number of bytes in the body
+    header_version = payload[2]   # mctp media independent header version
+    dest = payload[3]             # destination EID
+    src = payload[4]              # source EID
+    flags = payload[5]            # flags (som/eom/tag_owner/msg_tag)
+    msg_type = payload[6]         # message type (0x01 = PLDM)
+    instance = payload[7]         # rq/d/instance id
+    pldm_type = payload[8]        # PLDM type
+    command_code = payload[9]     # PLDM command code
+    response_code = payload[10]   # PLDM response code (if response)
+    
     # payload layout: [protocol(1), byte_count(1), body(byte_count), fcs_hi(1), fcs_lo(1)]
     if len(payload) < (2 + byte_count + 2):
         return None
+    
+    # calculate and verify FCS
     fcs_calc = calc_fcs(payload[:2 + byte_count])
     msg_fcs = (payload[2 + byte_count] << 8) | payload[2 + byte_count + 1]
-    cmd_idx = 8
-    cmd_code = None
+    
+    response_index = 10
     extra = b""
-    if len(payload) > cmd_idx:
-        cmd_code = payload[cmd_idx]
-        extra = payload[cmd_idx + 1:2 + byte_count]
+    if len(payload) > response_index:
+        extra = payload[response_index:]
     return {
         'protocol': protocol,
         'byte_count': byte_count,
@@ -109,7 +120,9 @@ def parse_frame(data: bytes):
         'flags': flags,
         'msg_type': msg_type,
         'instance': instance,
-        'cmd_code': cmd_code,
+        'type': pldm_type,
+        'cmd_code': command_code,
+        'resp_code': response_code,
         'extra': extra,
         'fcs_ok': (fcs_calc == msg_fcs),
         'raw_fcs': msg_fcs,
@@ -124,15 +137,17 @@ def build_mctp_pldm_request(pldm_msg: bytes, dest: int = 0, src: int = 0x10, msg
     protocol_version = 0x01
     header_version = 0x01
     flags = 0xC8
-    instance_id = 0x00
     body = bytearray()
     body.append(header_version)
     body.append(dest)
     body.append(src)
     body.append(flags)
-    body.append(msg_type)
-    body.append(instance_id)
-    body.extend(pldm_msg)
+    ###################################
+    # start of em.data / mctp_msg_hdr
+    body.append(msg_type)       # IC / message type (0x01 = PLDM)                
+    ###################################
+    # start of struct pldm_msg_hdr
+    body.extend(pldm_msg)       # starts with instance rq/d/instance, PLDM type and command code bytes 
     byte_count = len(body)
     frame = bytearray()
     frame.append(FRAME_CHAR)
@@ -215,29 +230,26 @@ def pretty_print_pldm_response(resp: bytes):
     if len(pldm_bytes) < 3:
         print('  PLDM message too short')
         return
-    b0, b1, b2 = pldm_bytes[0], pldm_bytes[1], pldm_bytes[2]
-    request = (b0 >> 7) & 0x1
-    datagram = (b0 >> 6) & 0x1
-    instance = b0 & 0x1F
-    pldm_type = b1 & 0x3F
-    header_ver = (b1 >> 6) & 0x03
-    command = b2
-    payload = pldm_bytes[3:]
-    print(f'  PLDM: request={request} datagram={datagram} instance={instance} type={pldm_type} header_ver={header_ver}')
-    print(f'  Command: 0x{command:02X}')
-    if payload:
-        print('  Payload:', ' '.join(f"{x:02X}" for x in payload))
-
+    request = (info['instance'] >> 7) & 0x1
+    datagram = (info['instance'] >> 6) & 0x1
+    instance = info['instance'] & 0x1F
+    pldm_type = info['type'] & 0x3F
+    header_ver = (info['type'] >> 6) & 0x03
+    payload = pldm_bytes[2:-2]
+    print(f'  PLDM: request={request} datagram={datagram} instance={instance} header_ver={header_ver}')
+    print(f'  Type::Command: 0x{info["type"]:02X}::0x{info["cmd_code"]:02X}')
+    print(f'  Response code: 0x{info["resp_code"]:02X}')
+    print(f'  Payload ({len(payload)} bytes):', ' '.join(f"{b:02X}" for b in payload))
 
 def run(device='/dev/ttyACM0', baud=9600):
     tests = []
 
     # GET_TID (no request payload)
     tests.append(('GET_TID', build_pldm_msg(PLDM_GET_TID)))
-
+    
     # GET_PLDM_VERSION: transfer_handle (4 le), transfer_opflag (1), type (1)
     transfer_handle = (0).to_bytes(4, 'little')
-    transfer_opflag = (0).to_bytes(1, 'little')
+    transfer_opflag = (1).to_bytes(1, 'little')
     pldm_type = (PLDM_BASE).to_bytes(1, 'little')
     tests.append(('GET_PLDM_VERSION', build_pldm_msg(PLDM_GET_PLDM_VERSION, payload=transfer_handle + transfer_opflag + pldm_type)))
 
@@ -245,9 +257,10 @@ def run(device='/dev/ttyACM0', baud=9600):
     tests.append(('GET_PLDM_TYPES', build_pldm_msg(PLDM_GET_PLDM_TYPES)))
 
     # GET_PLDM_COMMANDS: type (1) + version (4)
-    ver = (0).to_bytes(4, 'little')
-    tests.append(('GET_PLDM_COMMANDS', build_pldm_msg(PLDM_GET_PLDM_COMMANDS, payload=bytes([PLDM_PLATFORM]) + ver)))
-
+    pldm_type = (PLDM_BASE).to_bytes(1, 'little')
+    ver = (0xF1F1F000).to_bytes(4, 'little')
+    tests.append(('GET_PLDM_COMMANDS', build_pldm_msg(PLDM_GET_PLDM_COMMANDS, payload=pldm_type + ver)))
+    
     for name, pldm_msg in tests:
         print('\n===> Sending', name)
         frame = build_mctp_pldm_request(pldm_msg, dest=0)

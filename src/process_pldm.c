@@ -22,7 +22,7 @@ static struct pldm_control pldm_control_ctx;
 #ifndef PLDM_RX_BUF_SZ
 #define PLDM_RX_BUF_SZ 512
 #endif
-uint8_t pldm_rx_buf[PLDM_RX_BUF_SZ];
+uint8_t pldm_tx_buf[PLDM_RX_BUF_SZ];
 
 /**
  * SUPPORTED VERSIONS AND COMMANDS
@@ -652,47 +652,60 @@ int init_pldm() {
 	return 0;
 }
 
-
 int handle_pldm_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, uint8_t msg_tag, const void *msg, size_t msg_len) {    
-    /* Space for header plus completion code */
-	if (msg_len < sizeof(struct pldm_msg_hdr) + 1) {
-        LOG_ERR("PLDM message too short: %zu", msg_len);
-        send_completion_response(mctp, remote_eid, tag_owner, msg_tag, msg, msg_len, PLDM_ERROR_INVALID_LENGTH);
-        return PLDM_ERROR_INVALID_LENGTH;
-	}
-
-    /* Get the pldm header */
-	const struct pldm_msg *req = (const struct pldm_msg *)msg;
+	/* Get the pldm header */
+	const void *pldm_msg = ((const uint8_t *)msg + 1);  // skip the MCTP ic / type byte (always 1 for PLDM)
+	size_t pldm_msg_len = msg_len - 1;					// reduce by the MCTP type byte
+	const struct pldm_msg *req = (const struct pldm_msg *)(pldm_msg); 
 	struct pldm_header_info hdr;
 	int rc = unpack_pldm_header(&req->hdr, &hdr);
 	if (rc != PLDM_SUCCESS) {
         LOG_ERR("Failed to unpack PLDM header");
-        send_completion_response(mctp, remote_eid, tag_owner, msg_tag, msg, msg_len, rc);
-        return rc;
+        // todo send pldm error response
+		return rc;
     }
 
     rc = PLDM_ERROR_UNSUPPORTED_PLDM_CMD;
     size_t resp_len = PLDM_RX_BUF_SZ;
-    memset(pldm_rx_buf, 0, PLDM_RX_BUF_SZ);
+    memset(pldm_tx_buf, 0, resp_len);
+	pldm_tx_buf[0] = MCTP_PLDM_HDR_MSG_TYPE; // first byte is always the MCTP PLDM type
+	resp_len -= 1;                           // adjust response length to exclude MCTP type byte
     switch (hdr.pldm_type) {
         case PLDM_BASE:
             LOG_DBG("PLDM message: type BASE");
-            rc = pldm_control_handle_msg(&pldm_control_ctx, (const void *)msg, msg_len, pldm_rx_buf, &resp_len);
-            break;
+            rc = pldm_control_handle_msg(&pldm_control_ctx, (const void *)pldm_msg, pldm_msg_len, pldm_tx_buf+1, &resp_len);
+			if (rc >= 0) {
+				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
+            	return rc;
+			}
+			break;
         case PLDM_FRU:
             LOG_DBG("PLDM message: type FRU");
-            rc = handle_fru_msg((const void *)msg, msg_len, pldm_rx_buf, &resp_len);
-            break;
+            rc = handle_fru_msg((const void *)pldm_msg, pldm_msg_len, pldm_tx_buf, &resp_len);
+			if (rc >= 0) {
+				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
+            	return rc;
+			}
+			break;
         case PLDM_PLATFORM:
             LOG_DBG("PLDM message: type PLATFORM");
-            rc = handle_platform_msg((const void *)msg, msg_len, pldm_rx_buf, &resp_len);
-            break;
+            rc = handle_platform_msg((const void *)pldm_msg, pldm_msg_len, pldm_tx_buf, &resp_len);
+			if (rc >= 0) {
+				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
+            	return rc;
+			}
+			break;
         default:
             LOG_DBG("Unsupported PLDM message type: %u", hdr.pldm_type);
     }
-    if (rc != PLDM_SUCCESS) {
-        LOG_DBG("Sending Error Response: %u", rc);
-        send_completion_response(mctp, remote_eid, tag_owner, msg_tag, msg, msg_len, rc);
-    }
+
+	LOG_DBG("Sending Error Response: %u", rc);
+	// construct the response message in the rx buffer
+	pldm_tx_buf[0] = MCTP_PLDM_HDR_MSG_TYPE; // first byte is always the MCTP PLDM type
+	pldm_tx_buf[1] = req->hdr.instance_id;   // copy the instance ID
+	pldm_tx_buf[2] = (hdr.pldm_type & 0x3F) | (1 << 6); // set the request bit to 0 for response
+	pldm_tx_buf[3] = hdr.command;            // copy the command
+	pldm_tx_buf[4] = (uint8_t)rc;            // completion code
+	mctp_message_tx(mctp, remote_eid, tag_owner, msg_tag, pldm_tx_buf, 5);
     return rc;
 }
