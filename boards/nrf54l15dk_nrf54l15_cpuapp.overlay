@@ -1,6 +1,7 @@
+arduino_serial: &uart30 {
+    status = "okay";
+};
 
-&zephyr_udc0 {
-    cdc_acm_uart0: cdc_acm_uart0 {
-        compatible = "zephyr,cdc-acm-uart";
-    };
+&uart20 {
+    status = "okay";
 };
