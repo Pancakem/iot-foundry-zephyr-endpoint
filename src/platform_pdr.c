@@ -401,7 +401,26 @@ int handle_platform_get_pdr(struct pldm_header_info *hdr, const void *req_msg, s
  */
 int handle_platform_find_pdr(struct pldm_header_info *hdr, const void *req_msg, size_t req_len, void *resp, size_t *resp_len)
 {
-	// TODO: implement
+	/* an Unsupported Command completion
+	 * code and write the minimal PLDM response (completion code only) into the
+	 * provided response buffer so the caller can transmit it. */
+	if (!hdr || !req_msg || !resp || !resp_len) {
+		return PLDM_ERROR_INVALID_DATA;
+	}
+	PLDM_MSG_BUFFER(msg_buf, MCTP_PAYLOAD_MAX);
+	memset(msg_buf, 0, sizeof(msg_buf));
+	struct pldm_msg *msg = (struct pldm_msg *)msg_buf;
+	struct pldm_header_info header = {0};
+	header.msg_type = PLDM_RESPONSE;
+	header.instance = hdr->instance;
+	header.pldm_type = PLDM_PLATFORM;
+	header.command = PLDM_FIND_PDR;
+	if (pack_pldm_header(&header, &msg->hdr) != PLDM_SUCCESS) return PLDM_ERROR;
+	msg->payload[0] = PLDM_ERROR_UNSUPPORTED_PLDM_CMD;
+	size_t msg_sz = sizeof(struct pldm_msg_hdr) + 1;
+	if (*resp_len < msg_sz) return PLDM_ERROR_INVALID_LENGTH;
+	memcpy(resp, msg, msg_sz);
+	*resp_len = msg_sz;
 	return PLDM_ERROR_UNSUPPORTED_PLDM_CMD;
 }
 
@@ -420,7 +439,25 @@ int handle_platform_find_pdr(struct pldm_header_info *hdr, const void *req_msg, 
  */
 int handle_platform_run_init_agent(struct pldm_header_info *hdr, const void *req_msg, size_t req_len, void *resp, size_t *resp_len)
 {
-	// Do nothing
+	/* Command is optional; respond with ERROR_UNSUPPORTED_PLDM_CMD (minimal
+	 * completion-code-only PLDM response) so the caller can transmit it. */
+	if (!hdr || !req_msg || !resp || !resp_len) {
+		return PLDM_ERROR_INVALID_DATA;
+	}
+	PLDM_MSG_BUFFER(msg_buf, MCTP_PAYLOAD_MAX);
+	memset(msg_buf, 0, sizeof(msg_buf));
+	struct pldm_msg *msg = (struct pldm_msg *)msg_buf;
+	struct pldm_header_info header = {0};
+	header.msg_type = PLDM_RESPONSE;
+	header.instance = hdr->instance;
+	header.pldm_type = hdr->pldm_type;
+	header.command = PLDM_RUN_INIT_AGENT;
+	if (pack_pldm_header(&header, &msg->hdr) != PLDM_SUCCESS) return PLDM_ERROR;
+	msg->payload[0] = PLDM_ERROR_UNSUPPORTED_PLDM_CMD;
+	size_t msg_sz = sizeof(struct pldm_msg_hdr) + 1;
+	if (*resp_len < msg_sz) return PLDM_ERROR_INVALID_LENGTH;
+	memcpy(resp, msg, msg_sz);
+	*resp_len = msg_sz;
 	return PLDM_ERROR_UNSUPPORTED_PLDM_CMD;
 }
 
@@ -439,6 +476,24 @@ int handle_platform_run_init_agent(struct pldm_header_info *hdr, const void *req
  */
 int handle_platform_get_pdr_repository_signature(struct pldm_header_info *hdr, const void *req_msg, size_t req_len, void *resp, size_t *resp_len)
 {
-	// TODO: implement
+	/* Optional command; return ERROR_UNSUPPORTED_PLDM_CMD with a minimal
+	 * completion-code-only PLDM response. */
+	if (!hdr || !req_msg || !resp || !resp_len) {
+		return PLDM_ERROR_INVALID_DATA;
+	}
+	PLDM_MSG_BUFFER(msg_buf, MCTP_PAYLOAD_MAX);
+	memset(msg_buf, 0, sizeof(msg_buf));
+	struct pldm_msg *msg = (struct pldm_msg *)msg_buf;
+	struct pldm_header_info header = {0};
+	header.msg_type = PLDM_RESPONSE;
+	header.instance = hdr->instance;
+	header.pldm_type = PLDM_PLATFORM;
+	header.command = PLDM_GET_PDR_REPOSITORY_SIGNATURE;
+	if (pack_pldm_header(&header, &msg->hdr) != PLDM_SUCCESS) return PLDM_ERROR;
+	msg->payload[0] = PLDM_ERROR_UNSUPPORTED_PLDM_CMD;
+	size_t msg_sz = sizeof(struct pldm_msg_hdr) + 1;
+	if (*resp_len < msg_sz) return PLDM_ERROR_INVALID_LENGTH;
+	memcpy(resp, msg, msg_sz);
+	*resp_len = msg_sz;
 	return PLDM_ERROR_UNSUPPORTED_PLDM_CMD;
 }

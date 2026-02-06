@@ -51,4 +51,20 @@
     "payload": "80025100000000ffffffff0012000000",
     "expected_code": 128
   }
+  ,
+  {
+    "name": "FindPDR_Unsupported",
+    "payload": "800052",
+    "expected_code": 5
+  },
+  {
+    "name": "GetPDRRepositorySignature_Unsupported",
+    "payload": "800053",
+    "expected_code": 5
+  },
+  {
+    "name": "RunInitAgent_Unsupported",
+    "payload": "800058",
+    "expected_code": 5
+  }
 ]

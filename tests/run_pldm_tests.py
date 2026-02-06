@@ -175,7 +175,7 @@ def build_mctp_pldm_request(pldm_msg: bytes, dest: int = 0, src: int = 0x10, msg
     return bytes(tx)
 
 
-def send_and_capture(device: str, frame: bytes, baud: int = 9600, settle: float = 2.0):
+def send_and_capture(device: str, frame: bytes, baud: int = 9600, settle: float = 0.25):
     with serial.Serial(device, baud, timeout=0.01) as ser:
         ser.reset_input_buffer()
         time.sleep(settle)

@@ -121,9 +121,7 @@ int main(void)
 
 	struct echo_msg em;
 	while (true) {
-		if (k_msgq_get(&echo_q, &em, K_FOREVER) == 0) {
-			LOG_DBG("dequeued echo for eid %d len %zu tag %u", em.remote_eid, em.len, em.msg_tag);
-		
+		if (k_msgq_get(&echo_q, &em, K_FOREVER) == 0) {		
 			const struct mctp_ctrl_msg_hdr *hdr = (const struct mctp_ctrl_msg_hdr *)em.data;
 			if ((em.len >= sizeof(struct mctp_ctrl_msg_hdr)) && 
 				(hdr->ic_msg_type == MCTP_CTRL_HDR_MSG_TYPE)) {
@@ -138,10 +136,7 @@ int main(void)
 			else if ((em.len >= sizeof(struct mctp_ctrl_msg_hdr)) && 
 				(hdr->ic_msg_type == MCTP_PLDM_HDR_MSG_TYPE)) {
 				// this is a PLDM message - process it
-				int ret = handle_pldm_message(mctp_ctx, em.remote_eid, em.tag_owner, em.msg_tag, em.data, em.len);
-				if (ret) {
-					LOG_DBG("handle_pldm_message failed: %d", ret);
-				}
+				handle_pldm_message(mctp_ctx, em.remote_eid, em.tag_owner, em.msg_tag, em.data, em.len);
 			}
 #endif
 			else {
