@@ -14,7 +14,7 @@ option(INCLUDE_PLDM "Enable building and linking libpldm" OFF)
 
 message(STATUS "INCLUDE_PLDM=${INCLUDE_PLDM}")
 
-target_sources(app PRIVATE src/main.c echo_msgsrc/mctp_control.c)
+target_sources(app PRIVATE src/main.c src/mctp_control.c)
 
 # Option to build host-only tools (like iot_builder). Disabled by default.
 option(BUILD_HOST_TOOLS "Build host-only tools (not for cross/Zephyr builds)" OFF)
