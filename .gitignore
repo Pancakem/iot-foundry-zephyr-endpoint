@@ -19,7 +19,6 @@ __pycache__/
 
 # zephyr modules and core
 /modules*
-/zephyr*
 
 
 

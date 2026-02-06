@@ -1,0 +1,11 @@
+checkout-command: git checkout .
+clean-command: git clean -d -f -x
+patches:
+
+- author: pancakem
+  email: pancakesdeath@protonmail.com
+  date: '2026-02-07'
+  module: zephyr
+  path: 0001-subsys-pmci-mctp-dma-blocking-fix.patch
+  sha256sum: 8c191d72593177ca122a148943e622ff5b9f87bf7a94500b66c94d5ca51419bd
+  upstreamable: false

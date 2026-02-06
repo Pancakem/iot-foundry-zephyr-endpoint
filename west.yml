@@ -11,3 +11,4 @@ manifest:
         name-allowlist:
           - libmctp
           - hal_atmel
+          - cmsis_6

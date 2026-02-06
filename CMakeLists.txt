@@ -6,7 +6,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(iot_foundry_zephyr_endpoint)
 
-zephyr_syscall_include_directories(include)
+# zephyr_syscall_include_directories(include)
 zephyr_include_directories(include)
 
 # Option to include PLDM support (use -DINCLUDE_PLDM=ON to enable)
