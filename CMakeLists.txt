@@ -6,7 +6,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(iot_foundry_zephyr_endpoint)
 
-zephyr_syscall_include_directories(include)
+# zephyr_syscall_include_directories(include)
 zephyr_include_directories(include)
 
 # Option to include PLDM support (use -DINCLUDE_PLDM=ON to enable)
@@ -14,7 +14,7 @@ option(INCLUDE_PLDM "Enable building and linking libpldm" OFF)
 
 message(STATUS "INCLUDE_PLDM=${INCLUDE_PLDM}")
 
-target_sources(app PRIVATE src/main.c src/mctp_control.c)
+target_sources(app PRIVATE src/main.c echo_msgsrc/mctp_control.c)
 
 # Option to build host-only tools (like iot_builder). Disabled by default.
 option(BUILD_HOST_TOOLS "Build host-only tools (not for cross/Zephyr builds)" OFF)

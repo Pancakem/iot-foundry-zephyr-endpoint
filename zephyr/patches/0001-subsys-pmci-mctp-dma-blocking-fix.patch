@@ -1,0 +1,60 @@
+From b9cfc06a5d7506b56c636d696215abc10e8d6a6d Mon Sep 17 00:00:00 2001
+From: pancakem <pancakesdeath@protonmail.com>
+Date: Fri, 6 Feb 2026 11:09:08 +0300
+Subject: [PATCH] subsys: pmci: mctp dma blocking fix
+
+Prevent SAM0 blocking issues with DMA
+
+Signed-off-by: pancakem <pancakesdeath@protonmail.com>
+---
+ include/zephyr/pmci/mctp/mctp_uart.h | 4 ++++
+ subsys/pmci/mctp/mctp_uart.c         | 9 +++++++++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/include/zephyr/pmci/mctp/mctp_uart.h b/include/zephyr/pmci/mctp/mctp_uart.h
+index 0aeee195e7b..706cea00fbf 100644
+--- a/include/zephyr/pmci/mctp/mctp_uart.h
++++ b/include/zephyr/pmci/mctp/mctp_uart.h
+@@ -22,7 +22,11 @@ struct mctp_binding_uart {
+ 	const struct device *dev;
+ 
+ 	/* receive buffers and state */
++#if defined(CONFIG_SOC_FAMILY_ATMEL_SAM0)
++	uint8_t rx_buf[2][1];
++#else
+ 	uint8_t rx_buf[2][256];
++#endif
+ 	bool rx_buf_used[2];
+ 	struct mctp_pktbuf *rx_pkt;
+ 	uint8_t rx_exp_len;
+diff --git a/subsys/pmci/mctp/mctp_uart.c b/subsys/pmci/mctp/mctp_uart.c
+index b77a4698508..23c4d7f6659 100644
+--- a/subsys/pmci/mctp/mctp_uart.c
++++ b/subsys/pmci/mctp/mctp_uart.c
+@@ -14,6 +14,10 @@
+ #include <zephyr/logging/log.h>
+ LOG_MODULE_REGISTER(mctp_uart, CONFIG_MCTP_LOG_LEVEL);
+ 
++#if defined(CONFIG_SOC_FAMILY_ATMEL_SAM0)
++#include <soc.h>
++#endif
++
+ #define MCTP_UART_REVISION     0x01
+ #define MCTP_UART_FRAMING_FLAG 0x7e
+ #define MCTP_UART_ESCAPE       0x7d
+@@ -260,7 +264,12 @@ void mctp_uart_start_rx(struct mctp_binding_uart *uart)
+ 
+ 	__ASSERT_NO_MSG(res == 0);
+ 	uart->rx_buf_used[0] = true;
++#if defined(CONFIG_SOC_FAMILY_ATMEL_SAM0)
++	// On SAM0, using SYS_FOREVER_US to ensure dma is started correctly
++	res = uart_rx_enable(uart->dev, uart->rx_buf[0], sizeof(uart->rx_buf[0]), SYS_FOREVER_US);
++#else
+ 	res = uart_rx_enable(uart->dev, uart->rx_buf[0], sizeof(uart->rx_buf[0]), 1000);
++#endif
+ 	__ASSERT_NO_MSG(res == 0);
+ }
+ 
+-- 
+2.51.0
+

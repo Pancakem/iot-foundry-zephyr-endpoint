@@ -43,7 +43,7 @@ This project uses submodules to support some of the library functions.  Once you
 cd <application_path> 
 git submodule update --init --recursive
 ```
-Next, the platform data record (PDR) builder needs to be built if the project will implment PLDM.  Do this with the following comman ds:
+Next, the platform data record (PDR) builder needs to be built if the project will implment PLDM.  Do this with the following commands:
 ```bash
 cd <application_path> 
 mkdir -p build-host/iot_builder
@@ -66,21 +66,21 @@ west init -m <application_path>
 west update
 ```
 Now that the workspace is initialized, it is important to install any further python dependencies required by `west` and optionally install the Zephyr sdk.
+
 ```bash
 # install Zephyr Python dependencies and sdk.
 west packages pip --install
 west sdk install
 ```
-This applicaiton may require patches to the Zephyr source-base that are not general enough to warrant upstreaming them.  This next step applies any necessary patches.
+This application may require patches to the Zephyr source-base that are not general enough to warrant upstreaming them.  This next step applies any necessary patches.
+
 ```bash
-# apply patches for this project
-cd <workspace_path>
-chmod +x <application_path>/patches/apply_patches.sh
-<application_path>/patches/apply_patches.sh
+west patch apply
 ```
+
 The environment is now installed and ready to use.  Note that sourcing the virtual environment will be required with each new terminal session.
 
-Lastly, if building with PLDM support enabled, you may use the iot-builder to create build switches and PDR data for your project.  This code will place the required config.c and config.h files in the src/pdrs/ folder.  You may change the path to the input.json file as you see fit. 
+Lastly, if building with PLDM support enabled, you may use the iot-builder to create build switches and PDR data for your project.  This code will place the required config.c and config.h files in the src/pdrs/ folder.  You may change the path to the input.json file as you see fit.
 ```bash
 cd <application_path>
 ./build-host/iot_builder/iot_builder ./tools/iot_builder/src/builder/sample_config.json ./src/pdrs/
