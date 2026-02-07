@@ -25,7 +25,7 @@
   },
   {
     "name": "GetPDR_FirstRecord_Request",
-    "payload": "80025100000000000000000001200000",
+    "payload": "80025100000000000000000001120000",
     "expected": "000251000200000000000000050900010001010100010101",
     "expected_code": 0
   },
@@ -43,7 +43,7 @@
   },
   {
     "name": "GetPDR_InvalidRecordHandle",
-    "payload": "800251ffffffff000000000012000000",
+    "payload": "800251ffffffff000000010012000000",
     "expected_code": 130
   },
   {

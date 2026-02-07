@@ -255,6 +255,42 @@ int handle_platform_get_pdr(struct pldm_header_info *hdr, const void *req_msg, s
 		return rc;
 	}
 
+	/* Log decoded request values for debugging */
+	LOG_DBG("GetPDR req: record_hndl=0x%08x data_xfer_hndl=0x%08x transfer_op_flag=0x%02x request_cnt=%u record_chg_num=%u",
+		record_hndl, data_transfer_hndl, transfer_op_flag, request_cnt, record_chg_num);
+
+	/* Validate transfer operation flag per DSP0248: GetFirstPart=0x01, GetNextPart=0x00
+	 * If data_transfer_hndl == 0 (new transfer) we expect GetFirstPart (0x01).
+	 * If data_transfer_hndl != 0 (continuation) we expect GetNextPart (0x00).
+	 */
+	if (data_transfer_hndl == 0) {
+		if (transfer_op_flag != 0x01) {
+			PLDM_MSG_BUFFER(msg_buf, MCTP_PAYLOAD_MAX);
+			memset(msg_buf, 0, sizeof(msg_buf));
+			struct pldm_msg *msg = (struct pldm_msg *)msg_buf;
+			int enc = encode_get_pdr_resp(hdr->instance, PLDM_PLATFORM_INVALID_DATA_TRANSFER_HANDLE, 0, 0, PLDM_PLATFORM_TRANSFER_START_AND_END, 0, NULL, 0, msg);
+			if (enc != PLDM_SUCCESS) return enc;
+			size_t msg_sz = sizeof(struct pldm_msg_hdr) + PLDM_GET_PDR_MIN_RESP_BYTES;
+			if (*resp_len < msg_sz) return PLDM_ERROR_INVALID_LENGTH;
+			memcpy(resp, msg, msg_sz);
+			*resp_len = msg_sz;
+			return PLDM_PLATFORM_INVALID_DATA_TRANSFER_HANDLE;
+		}
+	} else {
+		if (transfer_op_flag != 0x00) {
+			PLDM_MSG_BUFFER(msg_buf, MCTP_PAYLOAD_MAX);
+			memset(msg_buf, 0, sizeof(msg_buf));
+			struct pldm_msg *msg = (struct pldm_msg *)msg_buf;
+			int enc = encode_get_pdr_resp(hdr->instance, PLDM_PLATFORM_INVALID_DATA_TRANSFER_HANDLE, 0, 0, PLDM_PLATFORM_TRANSFER_START_AND_END, 0, NULL, 0, msg);
+			if (enc != PLDM_SUCCESS) return enc;
+			size_t msg_sz = sizeof(struct pldm_msg_hdr) + PLDM_GET_PDR_MIN_RESP_BYTES;
+			if (*resp_len < msg_sz) return PLDM_ERROR_INVALID_LENGTH;
+			memcpy(resp, msg, msg_sz);
+			*resp_len = msg_sz;
+			return PLDM_PLATFORM_INVALID_DATA_TRANSFER_HANDLE;
+		}
+	}
+
 	/* find record data in __pdr_data[] */
 	const uint8_t *record_ptr = NULL;
 	size_t record_size = 0;
@@ -282,7 +318,10 @@ int handle_platform_get_pdr(struct pldm_header_info *hdr, const void *req_msg, s
 
 	/* Calculate maximum available bytes for record_data taking MCTP baseline into account */
 	size_t header_overhead = sizeof(struct pldm_msg_hdr) + (sizeof(struct pldm_get_pdr_resp) - 1);
-	size_t mctp_payload_max = MCTP_PAYLOAD_MAX;
+	/* Reserve one byte for the leading MCTP type byte which is prepended
+	 * when calling `mctp_message_tx()`. Ensure the encoded PLDM message
+	 * plus that leading byte does not exceed the binding MTU. */
+	size_t mctp_payload_max = (MCTP_PAYLOAD_MAX > 0) ? (MCTP_PAYLOAD_MAX - 1) : 0;
 	size_t max_data_by_mctp = (mctp_payload_max > header_overhead) ? (mctp_payload_max - header_overhead) : 0;
 
 	if (*resp_len > 0) {

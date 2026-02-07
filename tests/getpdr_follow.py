@@ -24,7 +24,8 @@ def follow_getpdr(device, baud, record_handle=5, request_cnt=0x12, verbose=True)
     while True:
         attempt += 1
         # build PLDM GetPDR request payload: record_handle(4), data_transfer_handle(4), transfer_op_flag(1), request_cnt(2), record_chg_num(2)
-        transfer_op_flag = 0
+        # Per DSP0248: GetFirstPart = 0x01, GetNextPart = 0x00
+        transfer_op_flag = 0x01 if data_transfer_handle == 0 else 0x00
         record_chg_num = 0
         payload = struct.pack('<I I B H H', record_handle, data_transfer_handle, transfer_op_flag, request_cnt, record_chg_num)
         pldm_msg = rt.build_pldm_msg(0x51, rt.PLDM_PLATFORM, 0, payload)

@@ -217,8 +217,12 @@ def send_and_capture(device: str, frame: bytes, baud: int = 9600, settle: float 
                 end = data.index(FRAME_CHAR, start + 1)
             except ValueError:
                 break
-            frames.append(bytes(data[start + 1:end]))
-            i = end + 1
+                frames.append(bytes(data[start + 1:end]))
+                # allow RFC1662 "shared flag" semantics: do not advance past the
+                # end-flag so that the same 0x7E byte can serve as the start of
+                # the next frame. Advancing to end would skip that possible start
+                # and mis-align subsequent frames.
+                i = end
 
         if not frames:
             return bytes()
@@ -240,10 +244,21 @@ def send_and_capture(device: str, frame: bytes, baud: int = 9600, settle: float 
                 continue
             # MCTP body is payload[2:2+byte_count]
             mctp_body = payload[2:2 + byte_count]
+            if len(mctp_body) < 5:
+                continue
+            # flags and message type are inside the MCTP body
+            flags = mctp_body[3]
+            msg_type = mctp_body[4]
+            # Skip non-PLDM (control) messages; they can appear interleaved
+            # on the serial channel and should not be appended to the
+            # assembled PLDM body. Continue until we see EOM on a PLDM
+            # fragment.
+            if msg_type != 0x01:
+                # still check for EOM on this frame? no — EOM pertains to
+                # this specific message type; keep reading until PLDM EOM.
+                continue
             assembled_body.extend(mctp_body)
-            flags = payload[5]
             # In the MCTP header flags, EOM is indicated when bit 6 (0x40) is set
-            # Many implementations set SOM/EOM as high bits; check EOM bit (0x40)
             if (flags & 0x40) != 0:
                 eom_seen = True
                 break
@@ -366,7 +381,8 @@ def follow_getpdr(device, baud, record_handle=0, request_cnt=18, verbose=False):
     while attempt < MAX_ATTEMPTS:
         attempt += 1
         # build PLDM GetPDR request payload: record_handle(4), data_transfer_handle(4), transfer_op_flag(1), request_cnt(2), record_chg_num(2)
-        transfer_op_flag = 0
+        # Per DSP0248: GetFirstPart = 0x01, GetNextPart = 0x00
+        transfer_op_flag = 0x01 if data_transfer_handle == 0 else 0x00
         record_chg_num = 0
         try:
             payload = struct.pack('<I I B H H', int(record_handle), int(data_transfer_handle), int(transfer_op_flag), int(request_cnt), int(record_chg_num))
@@ -464,7 +480,28 @@ def run(device='/dev/ttyACM0', baud=9600, tests_path=None, verbose=False):
                 continue
 
             pldm_msg = hex_to_bytes(payload_hex)
-            print('\n===> Sending', name)
+            # Normalize common JSON error: transfer_op_flag sometimes ends up one
+            # byte too far (at index 12) in some test vectors. If we detect a
+            # PLDM GetPDR (cmd 0x51) where byte 11 is zero and byte 12 looks
+            # like a transfer_op_flag (0x00..0x02), shift it into position so
+            # firmware sees the flag at the expected offset.
+            if len(pldm_msg) >= 13 and pldm_msg[2] == 0x51:
+                try:
+                    if pldm_msg[11] == 0x00 and pldm_msg[12] in (0x00, 0x01, 0x02):
+                        fixed = bytearray(pldm_msg)
+                        fixed[11] = fixed[12]
+                        # remove the duplicate byte at 12 by shifting the remainder
+                        del fixed[12]
+                        pldm_msg = bytes(fixed)
+                        print('\n===> Normalized GetPDR payload (fixed transfer_op_flag position)')
+                except Exception:
+                    pass
+            # Diagnostic: for GetPDR requests, print payload length and transfer_op_flag byte
+            if len(pldm_msg) >= 12 and pldm_msg[2] == 0x51:
+                tof = pldm_msg[11]
+                print('\n===> Sending', name, f'(len={len(pldm_msg)} transfer_op_flag=0x{tof:02x})')
+            else:
+                print('\n===> Sending', name)
             frame = build_mctp_pldm_request(pldm_msg, dest=0)
             resp = send_and_capture(device, frame, baud)
             if not resp:

@@ -447,6 +447,8 @@ int handle_pldm_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, u
 			// fix issue with wrong type byte
 			pldm_tx_buf[2] = hdr.pldm_type;   // copy the type from the request
 			if (rc >= 0) {
+				LOG_DBG("TX: mctp_message_tx len=%u buf=%02x %02x %02x %02x %02x %02x",
+				    (unsigned int)(resp_len + 1), pldm_tx_buf[0], pldm_tx_buf[1], pldm_tx_buf[2], pldm_tx_buf[3], pldm_tx_buf[4], pldm_tx_buf[5]);
 				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
             	return rc;
 			}
@@ -456,6 +458,8 @@ int handle_pldm_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, u
 			// fix issue with wrong type byte
 			pldm_tx_buf[2] = hdr.pldm_type;   // copy the type from the request
 			if (rc >= 0) {
+				LOG_DBG("TX: mctp_message_tx len=%u buf=%02x %02x %02x %02x %02x %02x",
+				    (unsigned int)(resp_len + 1), pldm_tx_buf[0], pldm_tx_buf[1], pldm_tx_buf[2], pldm_tx_buf[3], pldm_tx_buf[4], pldm_tx_buf[5]);
 				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
             	return rc;
 			}
@@ -465,6 +469,8 @@ int handle_pldm_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, u
 			// fix issue with wrong type byte
 			pldm_tx_buf[2] = hdr.pldm_type;   // copy the type from the request
 			if (rc >= 0) {
+				LOG_DBG("TX: mctp_message_tx len=%u buf=%02x %02x %02x %02x %02x %02x",
+				    (unsigned int)(resp_len + 1), pldm_tx_buf[0], pldm_tx_buf[1], pldm_tx_buf[2], pldm_tx_buf[3], pldm_tx_buf[4], pldm_tx_buf[5]);
 				mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, resp_len + 1);
             	return rc;
 			}
@@ -496,7 +502,9 @@ int handle_pldm_message(struct mctp *mctp, uint8_t remote_eid, bool tag_owner, u
 
 		/* total bytes: MCTP type + PLDM header + completion_code */
 		size_t total_len = 1 + hdr_sz + 1;
-		mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, total_len);
+			LOG_DBG("TX: mctp_message_tx len=%u buf=%02x %02x %02x %02x %02x %02x",
+			    (unsigned int)total_len, pldm_tx_buf[0], pldm_tx_buf[1], pldm_tx_buf[2], pldm_tx_buf[3], pldm_tx_buf[4], pldm_tx_buf[5]);
+			mctp_message_tx(mctp, remote_eid, !tag_owner, msg_tag, pldm_tx_buf, total_len);
 	}
 	return rc;
 }
