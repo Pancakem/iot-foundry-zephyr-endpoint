@@ -281,6 +281,29 @@ int handle_platform_msg(const void *req_msg, size_t req_len, void *resp_msg, siz
 	default:
 		rc = PLDM_ERROR_UNSUPPORTED_PLDM_CMD;
 	}
+
+	/* If the command is unsupported, return a minimal completion-code-only
+	 * PLDM response so the caller can transmit a valid PLDM response. */
+	if (rc == PLDM_ERROR_UNSUPPORTED_PLDM_CMD) {
+		/* ensure there's room for header + completion code */
+		size_t min_sz = sizeof(struct pldm_msg_hdr) + 1;
+		if (*resp_len < min_sz) {
+			return PLDM_ERROR_INVALID_LENGTH;
+		}
+		struct pldm_header_info resp_hdr = {0};
+		resp_hdr.msg_type = PLDM_RESPONSE;
+		resp_hdr.instance = hdr.instance;
+		resp_hdr.pldm_type = hdr.pldm_type;
+		resp_hdr.command = hdr.command;
+		if (pack_pldm_header(&resp_hdr, (struct pldm_msg_hdr *)resp_msg) != PLDM_SUCCESS) {
+			return PLDM_ERROR;
+		}
+		/* write completion code as first payload byte */
+		((uint8_t *)resp_msg)[sizeof(struct pldm_msg_hdr)] = (uint8_t)rc;
+		*resp_len = min_sz;
+		return rc;
+	}
+
 	return rc;
 }
 

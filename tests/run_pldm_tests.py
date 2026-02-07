@@ -10,6 +10,7 @@ import sys
 import json
 import argparse
 import os
+import struct
 
 FRAME_CHAR = 0x7E
 ESCAPE_CHAR = 0x7D
@@ -75,47 +76,60 @@ def unescape_body(raw: bytes) -> bytes:
 def parse_frame(data: bytes):
     if not data:
         return None
-    try:
-        start = data.index(FRAME_CHAR)
-        end = data.rindex(FRAME_CHAR)
-    except ValueError:
+    # Find the last complete framed packet (avoid concatenating multiple frames)
+    end = data.rfind(FRAME_CHAR)
+    if end == -1:
         return None
-    # skip past the start from character
+    start = data.rfind(FRAME_CHAR, 0, end)
+    if start == -1:
+        return None
+    # skip past the start character
     payload = data[start + 1:end]
     
     # unescape the payload
     payload = unescape_body(payload)
-    
-    # make sure the payload is long enough for header
-    if len(payload) < 6:
+    # payload layout: [protocol(1), byte_count(1), body(byte_count), fcs_hi(1), fcs_lo(1)]
+    if len(payload) < 2:
         return None
-    
     protocol = payload[0]         # serial protocol version
     byte_count = payload[1]       # number of bytes in the body
-    header_version = payload[2]   # mctp media independent header version
-    dest = payload[3]             # destination EID
-    src = payload[4]              # source EID
-    flags = payload[5]            # flags (som/eom/tag_owner/msg_tag)
-    msg_type = payload[6]         # message type (0x01 = PLDM)
-    instance = payload[7]         # rq/d/instance id
-    pldm_type = payload[8]        # PLDM type
-    command_code = payload[9]     # PLDM command code
-    response_code = payload[10]   # PLDM response code (if response)
-    
-    # payload layout: [protocol(1), byte_count(1), body(byte_count), fcs_hi(1), fcs_lo(1)]
+
+    # validate full frame length (body + 2-byte FCS)
     if len(payload) < (2 + byte_count + 2):
         return None
+
+    # extract MCTP body and parse fields from the body to avoid indexing past bounds
+    body = payload[2:2 + byte_count]
+    if len(body) < 6:
+        return None
+
+    header_version = body[0]   # mctp media independent header version
+    dest = body[1]             # destination EID
+    src = body[2]              # source EID
+    flags = body[3]            # flags (som/eom/tag_owner/msg_tag)
+    msg_type = body[4]         # message type (0x01 = PLDM)
+    # PLDM message header starts at body[5]
+    if len(body) < 8:
+        # not enough data for PLDM header
+        return None
+    instance = body[5]
+    pldm_type = body[6]
+    command_code = body[7]
+    # response code may not be present for all messages
+    response_code = body[8] if len(body) > 8 else None
     
     # calculate and verify FCS
     fcs_calc = calc_fcs(payload[:2 + byte_count])
     msg_fcs = (payload[2 + byte_count] << 8) | payload[2 + byte_count + 1]
     
-    response_index = 10
+    response_index = 3 + 6  # protocol(1)+byte_count(1) + body offset to PLDM payload start
     extra = b""
-    # payload layout: [protocol(1), byte_count(1), body(byte_count), fcs_hi(1), fcs_lo(1)]
+    # extra is the PLDM payload bytes following the 3-byte PLDM header in the body
+    # body starts at payload[2], PLDM header begins at body[5] -> overall index = 2 + 5 = 7
     body_end = 2 + byte_count
-    if len(payload) > response_index and body_end > response_index:
-        extra = payload[response_index:body_end]
+    if body_end > (2 + 8):
+        # extra bytes after PLDM header (instance/type/command)
+        extra = payload[2 + 8:body_end]
     return {
         'protocol': protocol,
         'byte_count': byte_count,
@@ -193,7 +207,74 @@ def send_and_capture(device: str, frame: bytes, baud: int = 9600, settle: float 
                 if data and (time.time() - last) > 0.2:
                     break
                 time.sleep(0.001)
-        return bytes(data)
+
+        # Split received stream into individual framed packets
+        frames = []
+        i = 0
+        while True:
+            try:
+                start = data.index(FRAME_CHAR, i)
+                end = data.index(FRAME_CHAR, start + 1)
+            except ValueError:
+                break
+            frames.append(bytes(data[start + 1:end]))
+            i = end + 1
+
+        if not frames:
+            return bytes()
+
+        # Reassemble MCTP bodies from successive frames until we see EOM set
+        assembled_body = bytearray()
+        protocol_version = None
+        eom_seen = False
+        for raw_payload in frames:
+            # unescape and parse this frame's payload
+            payload = unescape_body(raw_payload)
+            if len(payload) < 6:
+                continue
+            if protocol_version is None:
+                protocol_version = payload[0]
+            byte_count = payload[1]
+            # validate lengths
+            if len(payload) < (2 + byte_count + 2):
+                continue
+            # MCTP body is payload[2:2+byte_count]
+            mctp_body = payload[2:2 + byte_count]
+            assembled_body.extend(mctp_body)
+            flags = payload[5]
+            # In the MCTP header flags, EOM is indicated when bit 6 (0x40) is set
+            # Many implementations set SOM/EOM as high bits; check EOM bit (0x40)
+            if (flags & 0x40) != 0:
+                eom_seen = True
+                break
+
+        if not assembled_body:
+            return bytes()
+
+        # Build a synthetic single framed packet containing the assembled body
+        proto = protocol_version if protocol_version is not None else 0x01
+        byte_count = len(assembled_body)
+        frame_buf = bytearray()
+        frame_buf.append(FRAME_CHAR)
+        frame_buf.append(proto)
+        frame_buf.append(byte_count)
+        frame_buf.extend(assembled_body)
+        fcs = calc_fcs(bytes(frame_buf[1:]))
+        frame_buf.append((fcs >> 8) & 0xFF)
+        frame_buf.append(fcs & 0xFF)
+        frame_buf.append(FRAME_CHAR)
+
+        # escape payload bytes between payload start/end
+        tx = bytearray()
+        payload_start = 3
+        payload_end = 3 + byte_count
+        for i, b in enumerate(frame_buf):
+            if (i >= payload_start) and (i <= payload_end) and (b in (FRAME_CHAR, ESCAPE_CHAR)):
+                tx.append(ESCAPE_CHAR)
+                tx.append((b - 0x20) & 0xFF)
+            else:
+                tx.append(b)
+        return bytes(tx)
 
 
 PLDM_BASE = 0x00
@@ -274,6 +355,77 @@ def hex_to_pattern(hexstr: str):
     return pattern
 
 
+def follow_getpdr(device, baud, record_handle=0, request_cnt=18, verbose=False):
+    """Follow a multipart GetPDR transfer until complete. Returns (rc, assembled_bytes).
+    rc==0 indicates success.
+    """
+    assembled = bytearray()
+    data_transfer_handle = 0
+    attempt = 0
+    MAX_ATTEMPTS = 256
+    while attempt < MAX_ATTEMPTS:
+        attempt += 1
+        # build PLDM GetPDR request payload: record_handle(4), data_transfer_handle(4), transfer_op_flag(1), request_cnt(2), record_chg_num(2)
+        transfer_op_flag = 0
+        record_chg_num = 0
+        try:
+            payload = struct.pack('<I I B H H', int(record_handle), int(data_transfer_handle), int(transfer_op_flag), int(request_cnt), int(record_chg_num))
+        except Exception:
+            return 10, b""
+        pldm_msg = build_pldm_msg(0x51, PLDM_PLATFORM, 0, payload)
+        frame = build_mctp_pldm_request(pldm_msg, dest=0)
+        resp = send_and_capture(device, frame, baud)
+        if not resp:
+            if verbose:
+                print('No response for attempt', attempt)
+            return 1, bytes(assembled)
+        info = parse_frame(resp)
+        if not info:
+            if verbose:
+                print('Could not parse response frame')
+            return 2, bytes(assembled)
+
+        # Reconstruct resp_bytes as in run_pldm_tests
+        resp_bytes = bytes([info['instance'] & 0xFF, info['type'] & 0xFF, info['cmd_code'] & 0xFF]) + info['extra']
+
+        if len(resp_bytes) < 15:
+            if verbose:
+                print('Response too short:', resp_bytes.hex())
+            return 3, bytes(assembled)
+
+        completion = resp_bytes[3]
+        next_record_handle = resp_bytes[4] | (resp_bytes[5] << 8) | (resp_bytes[6] << 16) | (resp_bytes[7] << 24)
+        returned_transfer_handle = resp_bytes[8] | (resp_bytes[9] << 8) | (resp_bytes[10] << 16) | (resp_bytes[11] << 24)
+        transfer_flag = resp_bytes[12]
+        resp_cnt = resp_bytes[13] | (resp_bytes[14] << 8)
+        data_start = 15
+        data_end = data_start + resp_cnt
+        record_chunk = resp_bytes[data_start:data_end]
+        if verbose:
+            print(f'Attempt {attempt}: completion=0x{completion:02x} transfer_flag=0x{transfer_flag:02x} resp_cnt={resp_cnt} returned_xfer=0x{returned_transfer_handle:08x}')
+        if completion != 0:
+            if verbose:
+                print('PLDM reported error completion code', completion)
+            return 4, bytes(assembled)
+
+        assembled.extend(record_chunk)
+
+        # If returned_transfer_handle == 0, transfer complete
+        if returned_transfer_handle == 0:
+            crc = None
+            if len(resp_bytes) > data_end:
+                crc = resp_bytes[data_end]
+            if verbose:
+                print('Transfer complete. total_bytes=', len(assembled), 'crc=', crc)
+            return 0, bytes(assembled)
+
+        # continue using returned handle
+        data_transfer_handle = returned_transfer_handle
+        time.sleep(0.02)
+
+    return 5, bytes(assembled)
+
+
 def run(device='/dev/ttyACM0', baud=9600, tests_path=None, verbose=False):
     # Default tests file is `pldm_run_tests.json` located next to this script
     if not tests_path:
@@ -290,54 +442,99 @@ def run(device='/dev/ttyACM0', baud=9600, tests_path=None, verbose=False):
     failed = 0
     for t in test_list:
         name = t.get('name', '(unnamed)')
+        action = t.get('action')
         payload_hex = t.get('payload')
         expected_hex = t.get('expected')
         expected_code = t.get('expected_code')
         total += 1
 
-        if not payload_hex:
-            print('Skipping test (no payload):', name)
-            continue
+        # Support stateful actions driven by JSON
+        if action == 'follow_getpdr':
+            print('\n===> Sending (follow_getpdr) ', name)
+            record_handle = t.get('record_handle', 0)
+            request_cnt = t.get('request_cnt', 18)
+            rc, assembled = follow_getpdr(device, baud, record_handle=record_handle, request_cnt=request_cnt, verbose=verbose)
+            ok = (rc == 0)
+            resp_bytes = assembled if (ok and assembled is not None) else b""
+            # provide minimal info dict for downstream reporting
+            info = {'resp_code': 0 if ok else None}
+        else:
+            if not payload_hex:
+                print('Skipping test (no payload):', name)
+                continue
 
-        pldm_msg = hex_to_bytes(payload_hex)
-        print('\n===> Sending', name)
-        frame = build_mctp_pldm_request(pldm_msg, dest=0)
-        resp = send_and_capture(device, frame, baud)
-        if not resp:
-            print('  No response')
-            failed += 1
-            continue
+            pldm_msg = hex_to_bytes(payload_hex)
+            print('\n===> Sending', name)
+            frame = build_mctp_pldm_request(pldm_msg, dest=0)
+            resp = send_and_capture(device, frame, baud)
+            if not resp:
+                print('  No response')
+                failed += 1
+                continue
 
-        info = parse_frame(resp)
-        if not info:
-            print('  Could not parse response frame')
-            failed += 1
-            continue
+            info = parse_frame(resp)
+            if not info:
+                print('  Could not parse response frame')
+                failed += 1
+                continue
 
-        # Reconstruct PLDM-style response bytes: instance,type,cmd + extra
-        resp_bytes = bytes([info['instance'] & 0xFF, info['type'] & 0xFF, info['cmd_code'] & 0xFF]) + info['extra']
+            # Reconstruct PLDM-style response bytes: instance,type,cmd + extra
+            try:
+                resp_bytes = bytes([
+                    info.get('instance', 0) & 0xFF,
+                    info.get('type', 0) & 0xFF,
+                    (info.get('cmd_code', 0) or 0) & 0xFF,
+                ]) + (info.get('extra') or b"")
+            except Exception as e:
+                print('  Error reconstructing PLDM response:', e)
+                print('  Parsed info:', info)
+                failed += 1
+                continue
 
         ok = True
-        if expected_code is not None:
-            if info.get('resp_code') != expected_code:
-                ok = False
-        if expected_hex is not None:
-            try:
-                pattern = hex_to_pattern(expected_hex)
-            except Exception:
-                pattern = None
-            if pattern is None:
-                ok = False
-            else:
-                if len(pattern) != len(resp_bytes):
+        if action == 'follow_getpdr':
+            if expected_code is not None:
+                # follow_getpdr returns 0 on success; expected_code here indicates desired success(0)
+                if expected_code != 0:
+                    ok = False
+            if expected_hex is not None and resp_bytes is not None:
+                try:
+                    pattern = hex_to_pattern(expected_hex)
+                except Exception:
+                    pattern = None
+                if pattern is None:
                     ok = False
                 else:
-                    for idx, p in enumerate(pattern):
-                        if p is None:
-                            continue
-                        if p != resp_bytes[idx]:
-                            ok = False
-                            break
+                    if len(pattern) > len(resp_bytes):
+                        ok = False
+                    else:
+                        for idx, p in enumerate(pattern):
+                            if p is None:
+                                continue
+                            if p != resp_bytes[idx]:
+                                ok = False
+                                break
+        else:
+            if expected_code is not None:
+                if info.get('resp_code') != expected_code:
+                    ok = False
+            if expected_hex is not None:
+                try:
+                    pattern = hex_to_pattern(expected_hex)
+                except Exception:
+                    pattern = None
+                if pattern is None:
+                    ok = False
+                else:
+                    if len(pattern) != len(resp_bytes):
+                        ok = False
+                    else:
+                        for idx, p in enumerate(pattern):
+                            if p is None:
+                                continue
+                            if p != resp_bytes[idx]:
+                                ok = False
+                                break
 
         print('  PASS' if ok else '  FAIL')
         if verbose or not ok:

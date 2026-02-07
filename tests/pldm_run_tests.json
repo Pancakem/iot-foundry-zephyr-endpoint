@@ -67,4 +67,12 @@
     "payload": "800058",
     "expected_code": 5
   }
+  ,
+  {
+    "name": "GetPDR_Follow_First",
+    "action": "follow_getpdr",
+    "record_handle": 0,
+    "request_cnt": 18,
+    "expected_code": 0
+  }
 ]
