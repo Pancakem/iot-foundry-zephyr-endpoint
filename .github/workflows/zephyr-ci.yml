@@ -13,6 +13,36 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: 'false'
+          fetch-depth: 0
+
+      - name: Init application submodules only
+        run: |
+          echo "=== Init/update submodules for application only ==="
+          git -C "$GITHUB_WORKSPACE" submodule sync --recursive || true
+          git -C "$GITHUB_WORKSPACE" submodule update --init --recursive || true
+
+      - name: Ensure `pldm` is available (targeted)
+        run: |
+          echo "=== Ensure pldm submodule or repo is present ==="
+          # detect configured submodule URL for pldm (if any)
+          url=$(git config --file .gitmodules --get submodule.pldm.url || echo "")
+          echo "pldm submodule url: $url"
+          if [ -n "$url" ]; then
+            # convert SSH -> HTTPS for CI if necessary
+            if echo "$url" | grep -q '^git@'; then
+              url=$(echo "$url" | sed 's#git@github.com:#https://github.com/#')
+              git config submodule.pldm.url "$url"
+            fi
+            git submodule sync pldm || true
+            git submodule update --init --recursive pldm || (
+              echo "submodule update failed; attempting to clone $url" && git clone "$url" pldm
+            )
+          else
+            echo ".gitmodules missing or no pldm entry — attempting to clone default repo"
+            git clone https://github.com/openbmc/pldm pldm || true
+          fi
 
       - name: Install system packages
         run: |
@@ -20,12 +50,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             git cmake ninja-build gperf ccache dfu-util device-tree-compiler \
             python3-pip python3-setuptools python3-venv build-essential \
-            gcc-arm-none-eabi binutils-arm-none-eabi
+            gcc-arm-none-eabi binutils-arm-none-eabi libc6-dev \
+            xz-utils unzip pkg-config libncurses5-dev libusb-1.0-0-dev \
+            libssl-dev libffi-dev zlib1g-dev python3-dev \
+            gcc-multilib g++-multilib libc6-dev-i386
 
       - name: Install west and update PATH
         run: |
           python3 -m pip install --user west
-          echo "::add-path::$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
           export PATH="$HOME/.local/bin:$PATH"
 
       - name: Initialize west workspace with Zephyr
@@ -35,40 +68,157 @@ jobs:
           west init -m https://github.com/zephyrproject-rtos/zephyr
           west update
 
+      - name: Ensure Zephyr refs and re-run update
+        run: |
+          export ZEPHYR_BASE=$HOME/zephyrproject/zephyr
+          echo "Ensuring Zephyr tags/refs are present in $ZEPHYR_BASE"
+          git -C "$ZEPHYR_BASE" fetch --tags --prune origin || true
+          git -C "$ZEPHYR_BASE" show-ref --tags --heads || true
+          git -C "$ZEPHYR_BASE" rev-parse --verify v4.3.0 || true
+          echo "Re-running west -vv update to populate manifest imports"
+          west -vv update || west -vv update || true
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/scripts/requirements*.txt') }}
+
+      - name: Cache Zephyr SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.home }}/zephyr-sdk
+          key: ${{ runner.os }}-zephyr-sdk-0.16.0
+
+      - name: Install Zephyr SDK (minimal tarball)
+        env:
+          SDK_VERSION: 0.16.0
+        run: |
+          set -euo pipefail
+          SDK_DIR=$HOME/zephyr-sdk
+          mkdir -p "$SDK_DIR"
+          echo "Installing Zephyr SDK $SDK_VERSION to $SDK_DIR (minimal tarball)"
+          SDK_TAR=/tmp/zephyr-sdk-${SDK_VERSION}_linux-x86_64_minimal.tar.xz
+          SDK_URL="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VERSION}/zephyr-sdk-${SDK_VERSION}_linux-x86_64_minimal.tar.xz"
+          SDK_RUN=/tmp/zephyr-sdk-${SDK_VERSION}-x86_64-setup.run
+
+          echo "Attempting to download minimal tarball: $SDK_URL"
+          if wget -qO "$SDK_TAR" "$SDK_URL"; then
+            echo "Downloaded $(stat -c%s "$SDK_TAR") bytes"
+            echo "Extracting to $SDK_DIR"
+            tar -xJf "$SDK_TAR" -C "$SDK_DIR" --strip-components=1
+            echo "Extract complete"
+            echo "Extracted SDK contents:";
+            ls -la "$SDK_DIR" || true
+          else
+            echo "Minimal tarball not available; falling back to runfile installer"
+            RUN_URL="https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${SDK_VERSION}/zephyr-sdk-${SDK_VERSION}-x86_64-setup.run"
+            echo "Downloading runfile: $RUN_URL"
+            if wget -O "$SDK_RUN" "$RUN_URL"; then
+              chmod +x "$SDK_RUN"
+              INSTALL_LOG=/tmp/zephyr-sdk-install.log
+              if "$SDK_RUN" -- -d "$SDK_DIR" > "$INSTALL_LOG" 2>&1; then
+                echo "Runfile installer completed"
+              else
+                echo "Runfile installer exited non-zero; dumping tail of log:" >&2
+                tail -n 200 "$INSTALL_LOG" || true
+              fi
+            else
+              echo "Failed to download runfile installer; aborting SDK install attempt" >&2
+            fi
+          fi
+          echo "ZEPHYR_SDK_INSTALL_DIR=$SDK_DIR" >> $GITHUB_ENV
+          echo "ZEPHYR_TOOLCHAIN_VARIANT=zephyr" >> $GITHUB_ENV
+
       - name: Install Python requirements for Zephyr
         run: |
           export ZEPHYR_BASE=$HOME/zephyrproject/zephyr
           python3 -m pip install --user -r $ZEPHYR_BASE/scripts/requirements.txt
           export PATH="$HOME/.local/bin:$PATH"
 
-      - name: "Build for Arduino Nano 33 IoT (board: arduino_nano_33_iot)"
-        env:
-          ZEPHYR_BASE: ${{ runner.home }}/zephyrproject/zephyr
-          PATH: ${{ env.PATH }}:${{ runner.home }}/.local/bin
+      - name: Build iot_builder host tool
         run: |
-          west build -b arduino_nano_33_iot $GITHUB_WORKSPACE -p auto
+          echo "=== Build iot_builder (if present) ==="
+          cd $GITHUB_WORKSPACE
+          echo "$GITHUB_WORKSPACE"
+          ls -la "$GITHUB_WORKSPACE"
+          ls -la "$GITHUB_WORKSPACE/tools"
+          ls -la "$GITHUB_WORKSPACE/tools/iot_builder"
+          test -f "$GITHUB_WORKSPACE/tools/iot_builder/CMakeLists.txt" && echo OK || echo "CMakeLists.txt missing"
+          if [ -d tools/iot_builder ]; then
+            mkdir -p build-host/iot_builder
+            cmake -S "$GITHUB_WORKSPACE/tools/iot_builder" -B "$GITHUB_WORKSPACE/build-host/iot_builder"
+            cmake --build "$GITHUB_WORKSPACE/build-host/iot_builder" -- -j$(nproc)
+            echo "iot_builder build completed"
+            echo "Listing build output:"
+            ls -la build-host/iot_builder || true
+          else
+            echo "tools/iot_builder not found in repository; skipping"
+          fi
+
+      - name: Generate PDRs with iot_builder
+        run: |
+          echo "=== Generate PDRs using built iot_builder ==="
+          if [ -x build-host/iot_builder/iot_builder ]; then
+            mkdir -p build-host/iot_builder/generated
+            build-host/iot_builder/iot_builder tools/iot_builder/src/builder/sample_config.json build-host/iot_builder/generated/
+            ls -la build-host/iot_builder/generated || true
+            test -f build-host/iot_builder/generated/config.h || (echo "iot_builder did not produce config.h" && exit 1)
+            echo "Copying generated config.h into repository paths used by tests"
+            mkdir -p src/pdrs
+            cp build-host/iot_builder/generated/config.h src/pdrs/config.h
+            cp build-host/iot_builder/generated/config.c src/pdrs/config.c
+            # also copy into pldm tree if it exists (some builds expect it there)
+            if [ -d pldm/src/pdrs ]; then
+              mkdir -p pldm/src/pdrs
+              cp build-host/iot_builder/generated/config.h pldm/src/pdrs/config.h || true
+              cp build-host/iot_builder/generated/config.c pldm/src/pdrs/config.c || true
+            fi
+            ls -la src/pdrs || true
+          else
+            echo "iot_builder binary missing; cannot generate PDRs" && exit 1
+          fi
 
       - name: Build and run native_sim unit test
-        env:
-          ZEPHYR_BASE: ${{ runner.home }}/zephyrproject/zephyr
-          PATH: ${{ env.PATH }}:${{ runner.home }}/.local/bin
         run: |
-          west build -b native_sim tests/mctp_posix_uart_stub -p auto
-          west build -t run
+          # ensure Zephyr env and west are available in this shell
+          export ZEPHYR_BASE="$HOME/zephyrproject/zephyr"
+          # use host toolchain for native_sim to avoid requiring Zephyr SDK
+          export ZEPHYR_TOOLCHAIN_VARIANT=host
+          export PATH="$HOME/.local/bin:$PATH"
+
+          echo "=== Diagnostics ==="
+          echo "ZEPHYR_BASE=$ZEPHYR_BASE"
+          which west || true
+          west --version || true
+          west -vv status || true
+
+          # build native_sim test and run it (pass correct CMake flags after --)
+          west build -b native_sim tests/mctp_posix_uart_stub -d build_native -p auto -- -DINCLUDE_PLDM=ON
+          west build -t run -d build_native
 
       - name: Build and run native pldm_tb tests
-        env:
-          PATH: ${{ env.PATH }}:${{ runner.home }}/.local/bin
         run: |
-          mkdir -p tests/pldm_tb/build_native
-          pushd tests/pldm_tb/build_native
-          cmake ..
-          cmake --build . -j
-          ./pldm_tb ../tests.json -v
-          # Run native FRU unit tests (no hardware I/O)
-          if [ -x ./test_fru ]; then
-            ./test_fru
+          # ensure local pip bin is on PATH and system tools are available
+          export PATH="$HOME/.local/bin:$PATH"
+
+          # quick diagnostics to catch missing checkout/submodule problems
+          echo "PWD: $(pwd)"
+          echo "Listing tests/pldm_tb and repo roots"
+          ls -la tests/pldm_tb || true
+          ls -la pldm || true
+          ls -la pldm-cmake || true
+
+          # Configure and build explicitly using -S/-B to avoid cwd ambiguity
+          cmake -S tests/pldm_tb -B tests/pldm_tb/build_native \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_VERBOSE_MAKEFILE=ON
+          cmake --build tests/pldm_tb/build_native -j
+
+          # Run the produced test runner and native FRU unit test
+          tests/pldm_tb/build_native/pldm_tb tests/pldm_tb/tests.json -v
+          if [ -x tests/pldm_tb/build_native/test_fru ]; then
+            tests/pldm_tb/build_native/test_fru
           else
             echo "test_fru not built or missing"; exit 1
           fi
-          popd

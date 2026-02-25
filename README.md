@@ -62,7 +62,7 @@ After `west` is installed, you will use it to initialize the project workspace (
 ```bash
 # create workspace outside repo.  
 mkdir -p <workspace_path> && cd <workspace_path>
-west init -m <application_path>
+west init -m https://github.com/zephyrproject-rtos/zephyr
 west update
 ```
 Now that the workspace is initialized, it is important to install any further python dependencies required by `west` and optionally install the Zephyr sdk.
@@ -76,16 +76,13 @@ This applicaiton may require patches to the Zephyr source-base that are not gene
 # apply patches for this project
 cd <workspace_path>
 chmod +x <application_path>/patches/apply_patches.sh
+export ZEPHYR_BASE=/home/doug/zephyrproject/zephyr
 <application_path>/patches/apply_patches.sh
 ```
 The environment is now installed and ready to use.  Note that sourcing the virtual environment will be required with each new terminal session.
 
-Lastly, if building with PLDM support enabled, you may use the iot-builder to create build switches and PDR data for your project.  This code will place the required config.c and config.h files in the src/pdrs/ folder.  You may change the path to the input.json file as you see fit. 
-```bash
-cd <application_path>
-./build-host/iot_builder/iot_builder ./tools/iot_builder/src/builder/sample_config.json ./src/pdrs/
+Lastly, if building with PLDM support enabled, the iot-builder will be used to create build switches and PDR data for your project.  This code will place the required config.c and config.h files in the src/pdrs/ folder.  The name of the input file the builder will use will match the name of your board configuration (but have an extension of .json) and can be found in the boards/ folder. 
 
-```
 More information about the iot builder can be found on github at: https://github.com/PICMG/iot_builder
 
 ## Build Flow
@@ -95,11 +92,18 @@ To build the project, use the following commands:
 cd <workspace_path>
 west build -p always -b arduino_nano_33_iot <application_path>
 # our use this to enable pldm:
-west build -p always -b arduino_nano_33_iot -d /home/doug/zephyrproject/build /home/doug/git/iot-foundry-zephyr-endpoint -- -DINCLUDE_PLDM=ON
+west build -p always -b arduino_nano_33_iot -d build_atmega <applcation_path> -- -DINCLUDE_PLDM=ON
+
+# or this for the nordic 54l15dk developer board
+west build -p always -b nrf54l15dk/nrf54l15/cpuapp -d build_nordic <application_path> -- -DINCLUDE_PLDM=ON
+
 ```
 The device can be programmed using:
 ```bash
-west flash
+# for atmega - note that the atmega will communicate on the pin-based serial port
+west flash -d build_atmega
+# for nordic - note that the nordic board will communicate on /dev/ttyACM0 after programming
+west flash -d build_nordic
 ```
 
 ## Running device tests
